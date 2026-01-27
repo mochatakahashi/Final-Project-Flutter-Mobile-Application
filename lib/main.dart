@@ -217,9 +217,15 @@ class ProfileScreen extends StatelessWidget {
                   const SizedBox(height: 15),
                   Row(
                     children: [
-                      _buildSocialIcon(Icons.code),
+                      _buildSocialButton(
+                        icon: Icons.code,
+                        url: 'github.com/mochatakahashi',
+                      ),
                       const SizedBox(width: 15),
-                      _buildSocialIcon(Icons.business),
+                      _buildSocialButton(
+                        icon: Icons.business_center,
+                        url: 'www.linkedin.com/in/rodmina-',
+                      ),
                     ],
                   ),
 
@@ -367,11 +373,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSocialIcon(IconData icon) {
+  Widget _buildSocialButton({required IconData icon, required String url}) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
+        color: Colors.grey.shade100,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(icon, size: 24, color: Colors.grey.shade700),
