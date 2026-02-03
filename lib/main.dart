@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 void main() {
   runApp(const MyApp());
@@ -36,6 +37,12 @@ class ProfileScreen extends StatelessWidget {
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.qr_code, color: Colors.black),
+            onPressed: () {
+              _showQRCodeDialog(context);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.edit, color: Colors.black),
             onPressed: () {
@@ -231,6 +238,39 @@ class ProfileScreen extends StatelessWidget {
 
                   const SizedBox(height: 30),
 
+                  // Share Profile via QR Code Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        _showQRCodeDialog(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple.shade600,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.qr_code_2, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text(
+                            'Share Profile via QR Code',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
                   // View Friends Button
                   SizedBox(
                     width: double.infinity,
@@ -381,6 +421,136 @@ class ProfileScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(icon, size: 24, color: Colors.grey.shade700),
+    );
+  }
+
+  void _showQRCodeDialog(BuildContext context) {
+    // Create contact data for QR code
+    const contactData = '''BEGIN:VCARD
+VERSION:3.0
+N:Ibe;Rodmina;;;
+FN:Rodmina Ibe
+EMAIL;TYPE=INTERNET:raibe@student.apc.edu.ph
+EMAIL;TYPE=INTERNET:rodminaibe45@gmail.com
+TEL;TYPE=CELL:+639911033071
+ADR;TYPE=HOME:;;Pasay City;PH;;;
+END:VCARD''';
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Share My Profile',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Scan this QR code to get my contact details',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // QR Code
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: QrImageView(
+                      data: contactData,
+                      version: QrVersions.auto,
+                      size: 200.0,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Contact info preview
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildQRInfoRow(Icons.person, 'Rodmina Ibe'),
+                        const SizedBox(height: 6),
+                        _buildQRInfoRow(Icons.email, 'raibe@student.apc.edu.ph'),
+                        const SizedBox(height: 6),
+                        _buildQRInfoRow(Icons.email_outlined, 'rodminaibe45@gmail.com'),
+                        const SizedBox(height: 6),
+                        _buildQRInfoRow(Icons.phone, '0991 103 3071'),
+                        const SizedBox(height: 6),
+                        _buildQRInfoRow(Icons.location_on, 'Pasay City, PH'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Close button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildQRInfoRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.purple.shade700),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.purple.shade900,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
