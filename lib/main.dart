@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -21,32 +23,34 @@ void main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
   );
   
-  // Set window size for desktop platforms
-  await windowManager.ensureInitialized();
+  // 🟢 ONLY RUN WINDOW MANAGER ON DESKTOP (Fixes Crash)
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    await windowManager.ensureInitialized();
+    
+    WindowOptions windowOptions = const WindowOptions(
+      size: Size(406, 860),
+      minimumSize: Size(406, 860),
+      maximumSize: Size(406, 860),
+      center: true,
+      backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.normal,
+      title: 'Profile Hub',
+    );
+    
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
   
-  WindowOptions windowOptions = const WindowOptions(
-    size: Size(406, 860),
-    minimumSize: Size(406, 860),
-    maximumSize: Size(406, 860),
-    center: true,
-    backgroundColor: Colors.transparent,
-    skipTaskbar: false,
-    titleBarStyle: TitleBarStyle.normal,
-    title: 'Profile Hub',
-  );
-  
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
-  
-  // Lock orientation to portrait mode (mobile screen)
+  // Lock orientation to portrait mode
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
   
-  // Set window size to mobile dimensions for desktop
+  // Set immersive mode
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   
   runApp(const MyApp());
@@ -1822,7 +1826,7 @@ void _showFriendsList(BuildContext context) {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return _FriendsListSheet();
+        return const _FriendsListSheet();
       },
     );
   }
@@ -2876,7 +2880,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Container(
               width: 35,
               height: 35,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 color: Colors.white,
               ),
@@ -3198,7 +3202,7 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
   final _profileService = ProfileService();
   List<Map<String, dynamic>> _searchResults = [];
   bool _isLoading = false;
-  Set<String> _requestedIds = {}; // Track which users have pending requests
+  final Set<String> _requestedIds = {}; // Track which users have pending requests
   Map<String, String> _friendStatuses = {}; // Track friend status for each user: 'friend', 'pending_sent', 'pending_received', 'none'
 
   @override
@@ -3389,11 +3393,11 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
     
     switch (friendStatus) {
       case 'friend':
-        statusWidget = Row(
+        statusWidget = const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.check_circle, color: Colors.green, size: 24),
-            const SizedBox(width: 4),
+            SizedBox(width: 4),
             Text(
               'Friends',
               style: TextStyle(
@@ -3406,11 +3410,11 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
         );
         break;
       case 'pending_sent':
-        statusWidget = Row(
+        statusWidget = const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.schedule, color: Colors.orange, size: 24),
-            const SizedBox(width: 4),
+            SizedBox(width: 4),
             Text(
               'Pending',
               style: TextStyle(
