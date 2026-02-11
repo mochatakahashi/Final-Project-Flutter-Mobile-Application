@@ -161,17 +161,17 @@ class ProfileService {
     try {
       final currentUserId = _supabase.auth.currentUser!.id;
 
-      // 1. Update the request status to 'accepted'
-      await _supabase
-          .from('friend_requests')
-          .update({'status': 'accepted'})
-          .eq('id', requestId);
-
-      // 2. Create the friendship (Link both ways) - removed status field
+      // 1. Create the friendship (Link both ways)
       await _supabase.from('friendships').insert([
         {'user_id': currentUserId, 'friend_id': senderId},
         {'user_id': senderId, 'friend_id': currentUserId},
       ]);
+
+      // 2. Delete the friend request (clean up)
+      await _supabase
+          .from('friend_requests')
+          .delete()
+          .eq('id', requestId);
     } catch (e) {
       print('Error accepting friend request: $e');
       rethrow;
@@ -181,9 +181,10 @@ class ProfileService {
   // Decline friend request
   Future<void> declineFriendRequest(String requestId) async {
     try {
+      // Delete the friend request instead of updating status
       await _supabase
           .from('friend_requests')
-          .update({'status': 'declined'})
+          .delete()
           .eq('id', requestId);
     } catch (e) {
       print('Error declining friend request: $e');
