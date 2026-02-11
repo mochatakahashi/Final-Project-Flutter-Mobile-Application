@@ -1,11 +1,16 @@
 import 'dart:io';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'services/auth_service.dart';
 import 'services/profile_service.dart';
 import 'services/chat_service.dart';
@@ -736,6 +741,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _location = '';
   String _title = '';
   String _skills = '';
+  String? _profilePictureUrl;
   bool _isLoading = true;
   int _friendCount = 0;
   int _pendingRequestsCount = 0;
@@ -762,6 +768,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _location = profile?['location'] ?? 'No location';
           _title = profile?['title'] ?? 'No title';
           _skills = profile?['skills'] ?? 'No skills';
+          _profilePictureUrl = profile?['avatar_url'];
           _isLoading = false;
         });
       }
@@ -799,6 +806,134 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (e) {
       print('Error loading pending requests count: $e');
     }
+  }
+  
+  Future<void> _uploadProfilePicture() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        setState(() => _isLoading = true);
+        final userId = supabase.auth.currentUser!.id;
+        final imageFile = File(image.path);
+        
+        final url = await _profileService.uploadProfilePicture(imageFile, userId);
+        
+        if (mounted) {
+          setState(() {
+            _profilePictureUrl = url;
+            _isLoading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile picture updated!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        final errorMessage = e.toString().contains('Bucket not found')
+            ? 'Storage bucket AVATARS not found. Please check your Supabase setup'
+            : 'Error uploading picture: $e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteProfilePicture() async {
+    try {
+      setState(() => _isLoading = true);
+      final userId = supabase.auth.currentUser!.id;
+      await _profileService.deleteProfilePicture(userId);
+      
+      if (mounted) {
+        setState(() {
+          _profilePictureUrl = null;
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile picture removed'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        final errorMessage = e.toString().contains('Bucket not found')
+            ? 'Storage bucket not found. Please set up storage in Supabase'
+            : 'Error deleting picture: $e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showProfilePictureOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.purple),
+                title: const Text('Choose from gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _uploadProfilePicture();
+                },
+              ),
+              if (_profilePictureUrl != null && _profilePictureUrl!.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text('Remove picture'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _deleteProfilePicture();
+                  },
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -887,24 +1022,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.symmetric(vertical: 30),
               child: Column(
                 children: [
-                  // Profile Picture with initial
-                  Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.purple.shade300,
-                    ),
-                    child: Center(
-                      child: Text(
-                        _isLoading ? '...' : (_fullName.isNotEmpty ? _fullName[0].toUpperCase() : 'U'),
-                        style: const TextStyle(
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                  // Profile Picture with edit button
+                  Stack(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.purple.shade300,
+                          image: _profilePictureUrl != null && _profilePictureUrl!.isNotEmpty
+                              ? DecorationImage(
+                                  image: NetworkImage(_profilePictureUrl!),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child: _profilePictureUrl == null || _profilePictureUrl!.isEmpty
+                            ? Center(
+                                child: Text(
+                                  _isLoading ? '...' : (_fullName.isNotEmpty ? _fullName[0].toUpperCase() : 'U'),
+                                  style: const TextStyle(
+                                    fontSize: 48,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              )
+                            : null,
+                      ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: GestureDetector(
+                          onTap: () => _showProfilePictureOptions(context),
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.shade700,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(
+                              Icons.camera_alt,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 15),
                   // Name
@@ -2041,10 +2208,25 @@ class _FriendsListSheetState extends State<_FriendsListSheet> {
   }
 }
 
-void _showQRCodeDialog(BuildContext context) {
+void _showQRCodeDialog(BuildContext context) async {
+    // Create a profile service instance
+    final profileService = ProfileService();
+    
+    // Fetch current user's profile data
+    final profile = await profileService.getProfile();
+    final userId = supabase.auth.currentUser?.id ?? '';
+    final userName = profile?['full_name'] ?? 'Unknown User';
+    
+    // QR data contains user ID for lookup
+    final qrData = userId;
+    
+    final GlobalKey qrKey = GlobalKey();
+
+    if (!context.mounted) return;
+    
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return Dialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
@@ -2067,7 +2249,7 @@ void _showQRCodeDialog(BuildContext context) {
                     IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: () {
-                        Navigator.pop(context);
+                        Navigator.pop(dialogContext);
                       },
                     ),
                   ],
@@ -2082,37 +2264,40 @@ void _showQRCodeDialog(BuildContext context) {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.shade700,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                RepaintBoundary(
+                  key: qrKey,
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.shade700,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: QrImageView(
+                            data: qrData,
+                            version: QrVersions.auto,
+                            size: 180.0,
+                            backgroundColor: Colors.white,
+                          ),
                         ),
-                        child: QrImageView(
-                          data: 'Rodmina Jhoy Ibe\nraibe@student.apc.edu.ph\n0991 103 3071',
-                          version: QrVersions.auto,
-                          size: 180.0,
-                          backgroundColor: Colors.white,
+                        const SizedBox(height: 16),
+                        Text(
+                          userName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Rodmina Jhoy Ibe',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -2129,14 +2314,77 @@ void _showQRCodeDialog(BuildContext context) {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('QR Code downloaded successfully!'),
-                          backgroundColor: Colors.green,
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
+                    onPressed: () async {
+                      try {
+                        // Capture the QR code as an image
+                        RenderRepaintBoundary boundary = qrKey.currentContext!
+                            .findRenderObject() as RenderRepaintBoundary;
+                        ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+                        ByteData? byteData = await image.toByteData(
+                            format: ui.ImageByteFormat.png);
+                        Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+                        String? savedPath;
+                        
+                        if (Platform.isWindows || Platform.isLinux) {
+                          // For desktop platforms, save to Downloads folder
+                          try {
+                            final String userProfile = Platform.environment['USERPROFILE'] ?? '';
+                            if (userProfile.isNotEmpty) {
+                              final String downloadsPath = '$userProfile\\Downloads';
+                              final Directory downloadsDir = Directory(downloadsPath);
+                              if (!downloadsDir.existsSync()) {
+                                downloadsDir.createSync(recursive: true);
+                              }
+                              final String fileName = 'qr_code_${userName.replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.png';
+                              final File file = File('$downloadsPath\\$fileName');
+                              await file.writeAsBytes(pngBytes);
+                              savedPath = file.path;
+                            }
+                          } catch (e) {
+                            print('Error saving to Downloads: $e');
+                          }
+                        } else {
+                          // For mobile platforms, save to gallery
+                          final result = await ImageGallerySaver.saveImage(
+                            pngBytes,
+                            name: "qr_code_${DateTime.now().millisecondsSinceEpoch}",
+                          );
+                          if (result['isSuccess'] == true) {
+                            savedPath = result['filePath'] ?? 'Gallery';
+                          }
+                        }
+
+                        if (dialogContext.mounted) {
+                          if (savedPath != null) {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                content: Text('QR Code saved to: $savedPath'),
+                                backgroundColor: Colors.green,
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(
+                                content: Text('Failed to save QR Code'),
+                                backgroundColor: Colors.red,
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        if (dialogContext.mounted) {
+                          ScaffoldMessenger.of(dialogContext).showSnackBar(
+                            SnackBar(
+                              content: Text('Error saving QR Code: $e'),
+                              backgroundColor: Colors.red,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.purple.shade700,
@@ -2155,9 +2403,46 @@ void _showQRCodeDialog(BuildContext context) {
                   ),
                 ),
                 const SizedBox(height: 12),
+                // Show scan button for all platforms
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (Platform.isWindows || Platform.isLinux) {
+                        // Show message for unsupported platforms
+                        ScaffoldMessenger.of(dialogContext).showSnackBar(
+                          const SnackBar(
+                            content: Text('QR scanning from camera is only available on mobile devices and macOS'),
+                            backgroundColor: Colors.orange,
+                            duration: Duration(seconds: 3),
+                          ),
+                        );
+                      } else {
+                        Navigator.pop(dialogContext);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const QRScannerScreen(),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('Scan QR Code'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.purple.shade700,
+                      side: BorderSide(color: Colors.purple.shade700),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 TextButton(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(dialogContext);
                   },
                   child: const Text(
                     'Close',
@@ -2745,41 +3030,87 @@ class _AddedAccountsScreenState extends State<AddedAccountsScreen> {
                 child: Text('Remove Friend'),
               ),
             ],
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'view') {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: Text('$name\'s Profile'),
-                    content: Text('Viewing profile of $name\n$title'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
+                // Fetch full profile details
+                try {
+                  final fullProfile = await _profileService.getProfileById(friendId);
+                  if (fullProfile != null && context.mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: Text('${fullProfile['full_name'] ?? name}\'s Profile'),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildProfileRow('Title', fullProfile['title'] ?? 'N/A'),
+                              const SizedBox(height: 12),
+                              _buildProfileRow('Bio', fullProfile['bio'] ?? 'N/A'),
+                              const SizedBox(height: 12),
+                              _buildProfileRow('Location', fullProfile['location'] ?? 'N/A'),
+                              const SizedBox(height: 12),
+                              _buildProfileRow('Phone', fullProfile['phone'] ?? 'N/A'),
+                              const SizedBox(height: 12),
+                              _buildProfileRow('Skills', fullProfile['skills'] ?? 'N/A'),
+                            ],
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: const Text('Close'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error loading profile: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
               } else if (value == 'remove') {
                 showDialog(
                   context: context,
-                  builder: (context) => AlertDialog(
+                  builder: (dialogContext) => AlertDialog(
                     title: const Text('Remove Friend'),
                     content: Text('Are you sure you want to remove $name from your friends?'),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () => Navigator.pop(dialogContext),
                         child: const Text('Cancel'),
                       ),
                       TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Removed $name from friends'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+                        onPressed: () async {
+                          Navigator.pop(dialogContext);
+                          try {
+                            await _profileService.unfriend(friendId);
+                            _loadFriends(); // Reload the friends list
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Removed $name from friends'),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error removing friend: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          }
                         },
                         child: const Text('Remove', style: TextStyle(color: Colors.red)),
                       ),
@@ -2791,6 +3122,30 @@ class _AddedAccountsScreenState extends State<AddedAccountsScreen> {
           ),
         ],
       ),
+    );
+  }
+  
+  Widget _buildProfileRow(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3285,10 +3640,32 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Error sending request';
+        Color bgColor = Colors.red;
+        
+        if (e.toString().contains('already sent') || e.toString().contains('already exists')) {
+          errorMessage = 'Friend request already sent to $receiverName';
+          bgColor = Colors.orange;
+          // Update UI to show pending status
+          setState(() {
+            _requestedIds.add(receiverId);
+            _friendStatuses[receiverId] = 'pending_sent';
+          });
+        } else if (e.toString().contains('already friends')) {
+          errorMessage = 'You are already friends with $receiverName';
+          bgColor = Colors.blue;
+          // Update UI to show friends status
+          setState(() {
+            _friendStatuses[receiverId] = 'friend';
+          });
+        } else {
+          errorMessage = 'Error: ${e.toString()}';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error sending request: $e'),
-            backgroundColor: Colors.red,
+            content: Text(errorMessage),
+            backgroundColor: bgColor,
           ),
         );
       }
@@ -3393,37 +3770,128 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
     
     switch (friendStatus) {
       case 'friend':
-        statusWidget = const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 24),
-            SizedBox(width: 4),
-            Text(
-              'Friends',
-              style: TextStyle(
-                color: Colors.green,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+        statusWidget = PopupMenuButton(
+          icon: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 24),
+              SizedBox(width: 4),
+              Text(
+                'Friends',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
+            ],
+          ),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'unfriend',
+              child: Text('Unfriend', style: TextStyle(color: Colors.red)),
             ),
           ],
+          onSelected: (value) async {
+            if (value == 'unfriend') {
+              // Show confirmation dialog
+              showDialog(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Unfriend'),
+                  content: Text('Are you sure you want to unfriend $name?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.pop(dialogContext);
+                        try {
+                          await _profileService.unfriend(userId);
+                          setState(() {
+                            _friendStatuses[userId] = 'none';
+                          });
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Unfriended $name'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      child: const Text('Unfriend', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+            }
+          },
         );
         break;
       case 'pending_sent':
-        statusWidget = const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.schedule, color: Colors.orange, size: 24),
-            SizedBox(width: 4),
-            Text(
-              'Pending',
-              style: TextStyle(
-                color: Colors.orange,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+        statusWidget = PopupMenuButton(
+          icon: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.schedule, color: Colors.orange, size: 24),
+              SizedBox(width: 4),
+              Text(
+                'Pending',
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
+            ],
+          ),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'cancel',
+              child: Text('Cancel Request', style: TextStyle(color: Colors.red)),
             ),
           ],
+          onSelected: (value) async {
+            if (value == 'cancel') {
+              try {
+                await _profileService.cancelFriendRequest(userId);
+                setState(() {
+                  _requestedIds.remove(userId);
+                  _friendStatuses[userId] = 'none';
+                });
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Cancelled friend request to $name'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            }
+          },
         );
         break;
       case 'pending_received':
@@ -3499,6 +3967,171 @@ class _SearchAccountsScreenState extends State<SearchAccountsScreen> {
             ),
           ),
           statusWidget,
+        ],
+      ),
+    );
+  }
+}
+
+// QR Scanner Screen
+class QRScannerScreen extends StatefulWidget {
+  const QRScannerScreen({super.key});
+
+  @override
+  State<QRScannerScreen> createState() => _QRScannerScreenState();
+}
+
+class _QRScannerScreenState extends State<QRScannerScreen> {
+  final _profileService = ProfileService();
+  bool _isProcessing = false;
+
+  Future<void> _handleQRCode(String? scannedData) async {
+    if (scannedData == null || scannedData.isEmpty || _isProcessing) return;
+    
+    setState(() => _isProcessing = true);
+
+    try {
+      // The QR code contains the user ID
+      final userId = scannedData;
+      
+      // Fetch the user's profile
+      final profile = await _profileService.getProfileById(userId);
+      
+      if (!mounted) return;
+      
+      if (profile != null) {
+        // Navigate to a profile view dialog or screen
+        Navigator.pop(context); // Close scanner
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(profile['full_name'] ?? 'User Profile'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Title: ${profile['title'] ?? 'N/A'}'),
+                const SizedBox(height: 8),
+                Text('Bio: ${profile['bio'] ?? 'N/A'}'),
+                const SizedBox(height: 8),
+                Text('Location: ${profile['location'] ?? 'N/A'}'),
+                const SizedBox(height: 8),
+                Text('Skills: ${profile['skills'] ?? 'N/A'}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await _profileService.sendFriendRequest(userId);
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Friend request sent!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Error: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: const Text('Add Friend'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('User not found'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Scan QR Code',
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            onDetect: (capture) {
+              final List<Barcode> barcodes = capture.barcodes;
+              if (barcodes.isNotEmpty && !_isProcessing) {
+                final String? code = barcodes.first.rawValue;
+                _handleQRCode(code);
+              }
+            },
+          ),
+          Center(
+            child: Container(
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Text(
+                'Align QR code within the frame',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  backgroundColor: Colors.black.withOpacity(0.6),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfileService {
@@ -100,6 +101,31 @@ class ProfileService {
   Future<void> sendFriendRequest(String receiverId) async {
     try {
       final senderId = _supabase.auth.currentUser!.id;
+      
+      // Check if already friends
+      final friendship = await _supabase
+          .from('friendships')
+          .select()
+          .eq('user_id', senderId)
+          .eq('friend_id', receiverId)
+          .maybeSingle();
+      
+      if (friendship != null) {
+        throw Exception('You are already friends with this user');
+      }
+      
+      // Check if request already exists
+      final existing = await _supabase
+          .from('friend_requests')
+          .select()
+          .eq('sender_id', senderId)
+          .eq('receiver_id', receiverId)
+          .eq('status', 'pending')
+          .maybeSingle();
+      
+      if (existing != null) {
+        throw Exception('Friend request already sent');
+      }
       
       await _supabase.from('friend_requests').insert({
         'sender_id': senderId,
@@ -260,6 +286,104 @@ class ProfileService {
     } catch (e) {
       print('Error checking friend status: $e');
       return 'none';
+    }
+  }
+
+  // Unfriend a user (remove friendship)
+  Future<void> unfriend(String friendId) async {
+    try {
+      final myId = _supabase.auth.currentUser!.id;
+      
+      // Delete both friendship records (bidirectional)
+      await _supabase
+          .from('friendships')
+          .delete()
+          .eq('user_id', myId)
+          .eq('friend_id', friendId);
+      
+      await _supabase
+          .from('friendships')
+          .delete()
+          .eq('user_id', friendId)
+          .eq('friend_id', myId);
+    } catch (e) {
+      print('Error unfriending: $e');
+      rethrow;
+    }
+  }
+
+  // Cancel a friend request that I sent
+  Future<void> cancelFriendRequest(String receiverId) async {
+    try {
+      final myId = _supabase.auth.currentUser!.id;
+      
+      await _supabase
+          .from('friend_requests')
+          .delete()
+          .eq('sender_id', myId)
+          .eq('receiver_id', receiverId)
+          .eq('status', 'pending');
+    } catch (e) {
+      print('Error canceling friend request: $e');
+      rethrow;
+    }
+  }
+  
+  // Upload profile picture
+  Future<String?> uploadProfilePicture(File imageFile, String userId) async {
+    try {
+      final String fileName = 'profile_$userId.jpg';
+      final String filePath = '$userId/$fileName';
+      
+      // Upload to Supabase Storage
+      await _supabase.storage
+          .from('avatars')
+          .upload(
+            filePath,
+            imageFile,
+            fileOptions: const FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+            ),
+          );
+      
+      // Get public URL
+      final String publicUrl = _supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+      
+      // Update profile with picture URL
+      await _supabase
+          .from('profiles')
+          .update({'avatar_url': publicUrl})
+          .eq('id', userId);
+      
+      return publicUrl;
+    } catch (e) {
+      print('Error uploading profile picture: $e');
+      rethrow;
+    }
+  }
+  
+  // Delete profile picture
+  Future<void> deleteProfilePicture(String userId) async {
+    try {
+      final String fileName = 'profile_$userId.jpg';
+      final String filePath = '$userId/$fileName';
+      
+      // Delete from storage
+      await _supabase.storage
+          .from('avatars')
+          .remove([filePath]);
+      
+      // Remove URL from profile
+      await _supabase
+          .from('profiles')
+          .update({'avatar_url': null})
+          .eq('id', userId);
+    } catch (e) {
+      print('Error deleting profile picture: $e');
+      rethrow;
     }
   }
 }
