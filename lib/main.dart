@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -10,7 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:gal/gal.dart';
 import 'services/auth_service.dart';
 import 'services/profile_service.dart';
 import 'services/chat_service.dart';
@@ -732,7 +731,7 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with WidgetsBindingObserver {
   final _profileService = ProfileService();
   String _fullName = 'Loading...';
   String _email = '';
@@ -749,9 +748,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadProfile();
     _loadFriendCount();
     _loadPendingRequestsCount();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh data when app comes back to foreground
+      _loadFriendCount();
+      _loadPendingRequestsCount();
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -820,6 +835,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (image != null) {
         setState(() => _isLoading = true);
+        
+        // Clear old cached image if exists
+        if (_profilePictureUrl != null && _profilePictureUrl!.isNotEmpty) {
+          imageCache.evict(NetworkImage(_profilePictureUrl!).obtainKey(ImageConfiguration.empty));
+        }
+        
         final userId = supabase.auth.currentUser!.id;
         final imageFile = File(image.path);
         
@@ -1691,6 +1712,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
   }
+
+  void _showFriendsList(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return _FriendsListSheet(
+          onFriendCountChanged: (count) {
+            setState(() {
+              _friendCount = count;
+            });
+          },
+        );
+      },
+    );
+  }
 } // End of ProfileScreen class
 
 // Friend Requests Sheet Widget
@@ -1986,21 +2024,11 @@ class _FriendRequestsSheetState extends State<_FriendRequestsSheet> {
   }
 }
 
-// Helper functions for ProfileScreen
-void _showFriendsList(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return const _FriendsListSheet();
-      },
-    );
-  }
-
 // Friends List Sheet Widget
 class _FriendsListSheet extends StatefulWidget {
-  const _FriendsListSheet();
+  final void Function(int)? onFriendCountChanged;
+  
+  const _FriendsListSheet({this.onFriendCountChanged});
 
   @override
   State<_FriendsListSheet> createState() => _FriendsListSheetState();
@@ -2026,6 +2054,8 @@ class _FriendsListSheetState extends State<_FriendsListSheet> {
           _friends = friendsData;
           _isLoading = false;
         });
+        // Update parent's friend count with actual count from database
+        widget.onFriendCountChanged?.call(_friends.length);
       }
     } catch (e) {
       if (mounted) {
@@ -2346,12 +2376,14 @@ void _showQRCodeDialog(BuildContext context) async {
                           }
                         } else {
                           // For mobile platforms, save to gallery
-                          final result = await ImageGallerySaver.saveImage(
-                            pngBytes,
-                            name: "qr_code_${DateTime.now().millisecondsSinceEpoch}",
-                          );
-                          if (result['isSuccess'] == true) {
-                            savedPath = result['filePath'] ?? 'Gallery';
+                          try {
+                            await Gal.putImageBytes(
+                              pngBytes,
+                              name: "qr_code_${DateTime.now().millisecondsSinceEpoch}.png",
+                            );
+                            savedPath = 'Gallery';
+                          } catch (e) {
+                            print('Error saving to gallery: $e');
                           }
                         }
 

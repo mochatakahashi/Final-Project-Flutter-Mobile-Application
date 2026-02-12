@@ -343,17 +343,20 @@ class ProfileService {
             filePath,
             imageFile,
             fileOptions: const FileOptions(
-              cacheControl: '3600',
+              cacheControl: '0',
               upsert: true,
             ),
           );
       
-      // Get public URL
-      final String publicUrl = _supabase.storage
+      // Get public URL with cache-busting timestamp
+      final String baseUrl = _supabase.storage
           .from('avatars')
           .getPublicUrl(filePath);
       
-      // Update profile with picture URL
+      // Add timestamp to bust cache
+      final String publicUrl = '$baseUrl?t=${DateTime.now().millisecondsSinceEpoch}';
+      
+      // Update profile with picture URL (with timestamp)
       await _supabase
           .from('profiles')
           .update({'avatar_url': publicUrl})
